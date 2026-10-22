@@ -1,0 +1,19 @@
+id = "word-count"
+name = "Word count"
+version = "0.1.0"
+api = 1
+description = "Counts the words in each scene, for the whole story or the scenes you pick."
+
+[permissions]
+operations = ["scene.tree", "scene.read"]
+
+[[actions]]
+name = "count"
+label = "Count words"
+places = ["project", "scene"]
+
+[[actions.field]]
+key = "scenes"
+type = "scenes"
+label = "Scenes"
+hint = "Leave empty for the whole story, or the scene you are in."
