@@ -54,7 +54,7 @@ curl -sSfL https://github.com/Darkrock-Studios/hammer-plugin-sdk/archive/refs/ta
 
 ## Learn more
 
-- [The Hammer developer site](https://plugins.hammer.ink): the API reference, with the manifest, every
+- [The Hammer developer site](https://developers.hammer.ink): the API reference, with the manifest, every
   kind of extension, and all of Hammer's operations.
 - [Recipes](https://github.com/Darkrock-Studios/hammer-plugin-sdk/blob/main/RECIPES.md): a small example of
   each kind of plugin.
