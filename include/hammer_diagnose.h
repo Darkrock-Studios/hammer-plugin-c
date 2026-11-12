@@ -4,7 +4,8 @@
 //   int hammer_diagnose_begin(const HammerDiagnoseRequest *request);
 //     Called once per request; returns 0 to report nothing, say for a language it doesn't check.
 //   void hammer_diagnose_paragraph(HammerText paragraph);
-//     Called for each paragraph, as plain UTF-8, to report what it finds with hammer_report.
+//     Called for each paragraph, as plain UTF-8, to report what it finds with hammer_report, or with
+//     hammer_suggest for what the writer may want to change.
 //
 // Include it after hammer.h. In the file that defines HAMMER_IMPLEMENTATION, it defines the export.
 #ifndef HAMMER_DIAGNOSE_H
@@ -25,6 +26,9 @@ typedef struct {
   // The UI's BCP 47 tag, for writing messages in the user's language; data is 0 when unknown. Not the
   // project's language, which is what the text is written in.
   HammerText locale;
+  // The name of the project the text belongs to, for operations such as entry.list; data is 0 when
+  // Hammer sent none.
+  HammerText project;
 } HammerDiagnoseRequest;
 
 // A fix: replacement text for the diagnostic's range, shown as itself, or as label when given.
@@ -37,14 +41,24 @@ typedef struct {
 int hammer_diagnose_begin(const HammerDiagnoseRequest *request);
 void hammer_diagnose_paragraph(HammerText paragraph);
 
-// Reports bytes [start, end) of the current paragraph with a message and any fixes.
+// Reports bytes [start, end) of the current paragraph with a message and any fixes: a mistake, with a
+// wavy underline.
 void hammer_report(uint64_t start, uint64_t end, const char *message, const HammerFix *fixes, uint32_t fix_count);
+// As hammer_report, for something the writer may want to change: a quieter, dotted underline.
+void hammer_suggest(uint64_t start, uint64_t end, const char *message, const HammerFix *fixes, uint32_t fix_count);
 
 // hammer_report with one plain fix, or none when replacement is 0.
 static inline void hammer_report_fix(uint64_t start, uint64_t end, const char *message, const char *replacement,
                                      uint64_t length) {
   HammerFix fix = {replacement, length, 0};
   hammer_report(start, end, message, replacement ? &fix : 0, replacement ? 1 : 0);
+}
+
+// hammer_suggest with one plain fix, or none when replacement is 0.
+static inline void hammer_suggest_fix(uint64_t start, uint64_t end, const char *message, const char *replacement,
+                                      uint64_t length) {
+  HammerFix fix = {replacement, length, 0};
+  hammer_suggest(start, end, message, replacement ? &fix : 0, replacement ? 1 : 0);
 }
 
 // Reads a request and returns the reply. Call hammer_alloc_reset() first, keeping input out of
@@ -86,7 +100,8 @@ static HammerBuffer hammer_diagnose_reply;
 static uint64_t hammer_diagnose_index;
 static int hammer_diagnose_reported;
 
-void hammer_report(uint64_t start, uint64_t end, const char *message, const HammerFix *fixes, uint32_t fix_count) {
+static void hammer_diagnose_put(uint64_t start, uint64_t end, const char *message, const HammerFix *fixes,
+                                uint32_t fix_count, int suggestion) {
   HammerBuffer *out = &hammer_diagnose_reply;
   hammer_put_text(out, hammer_diagnose_reported ? ",{\"paragraph\":" : "{\"paragraph\":");
   hammer_diagnose_reported = 1;
@@ -97,6 +112,7 @@ void hammer_report(uint64_t start, uint64_t end, const char *message, const Hamm
   hammer_put_int(out, (int64_t)end);
   hammer_put_text(out, ",\"message\":");
   hammer_put_json_string(out, message, strlen(message));
+  if (suggestion) hammer_put_text(out, ",\"severity\":\"suggestion\"");
   hammer_put_text(out, ",\"fixes\":[");
   for (uint32_t i = 0; i < fix_count; i++) {
     if (i) hammer_put_char(out, ',');
@@ -113,13 +129,21 @@ void hammer_report(uint64_t start, uint64_t end, const char *message, const Hamm
   hammer_put_text(out, "]}");
 }
 
+void hammer_report(uint64_t start, uint64_t end, const char *message, const HammerFix *fixes, uint32_t fix_count) {
+  hammer_diagnose_put(start, end, message, fixes, fix_count, 0);
+}
+
+void hammer_suggest(uint64_t start, uint64_t end, const char *message, const HammerFix *fixes, uint32_t fix_count) {
+  hammer_diagnose_put(start, end, message, fixes, fix_count, 1);
+}
+
 const char *hammer_diagnose_run(const char *input, uint64_t size, uint64_t *reply_length) {
   hammer_diagnose_reply = (HammerBuffer){0};
   hammer_diagnose_index = 0;
   hammer_diagnose_reported = 0;
 
   // Found before the paragraphs are checked, since keys may come in any order.
-  HammerDiagnoseRequest request = {{0}, {0}, {0}, {0}};
+  HammerDiagnoseRequest request = {{0}, {0}, {0}, {0}, {0}};
   HammerJson json;
   hammer_json_init(&json, input, size);
   const char *key;
@@ -133,6 +157,8 @@ const char *hammer_diagnose_run(const char *input, uint64_t size, uint64_t *repl
         hammer_json_string(&json, &request.language.data, &request.language.length);
       } else if (hammer_json_key_is(key, key_length, "locale") && hammer_json_peek(&json) == '"') {
         hammer_json_string(&json, &request.locale.data, &request.locale.length);
+      } else if (hammer_json_key_is(key, key_length, "project") && hammer_json_peek(&json) == '"') {
+        hammer_json_string(&json, &request.project.data, &request.project.length);
       } else if (hammer_json_key_is(key, key_length, "settings") && hammer_json_peek(&json) == '{') {
         uint64_t start = json.at;
         hammer_json_skip(&json);

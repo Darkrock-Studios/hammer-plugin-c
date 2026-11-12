@@ -6,13 +6,14 @@
 //   HammerWord *words = hammer_words(text, &count);
 //   if (count > 1 && hammer_same_word(text, words[0], words[1])) ...
 //
-// Letters are told apart roughly outside ASCII: anything but Latin-1 symbols and general punctuation
-// (quotes, dashes, the ellipsis) counts as one. Case is known for ASCII, Latin-1, Latin Extended-A, and
+// Letters, combining marks, and the rest come from hammer_word_classes.h, a table of Unicode 17 that
+// the Kotlin and Rust kits split words with too. Case is known for ASCII, Latin-1, Latin Extended-A, and
 // Cyrillic; other letters have none.
 #ifndef HAMMER_TEXT_H
 #define HAMMER_TEXT_H
 
 #include "hammer.h"
+#include "hammer_word_classes.h"
 
 typedef struct {
   const char *data;
@@ -139,21 +140,49 @@ static inline uint64_t hammer_char_before(HammerText text, uint64_t i) {
   return start;
 }
 
-// Bytes in the character at i: 1 for ASCII and stray continuation bytes.
+// Bytes in the character at i: 1 for ASCII, stray continuation bytes, and a character cut short by the
+// end of the text.
 static inline uint64_t hammer_char_length(HammerText text, uint64_t i) {
   unsigned char c = hammer_byte(text, i);
-  if (c >= 0xF0) return 4;
-  if (c >= 0xE0) return 3;
-  if (c >= 0xC0) return 2;
-  return 1;
+  uint64_t n = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+  return i + n > text.length ? 1 : n;
 }
 
+// What a code point is to hammer_words: letters make words, combining marks stay on the letter before
+// them, each ideograph (Han, kana, Bopomofo) is a word of its own, and a joiner between two letters stays
+// inside the word.
+enum { HAMMER_OTHER, HAMMER_LETTER, HAMMER_MARK, HAMMER_IDEOGRAPH, HAMMER_JOINER };
+
+static inline int hammer_word_class(uint32_t code) {
+  if (code < 0x80) {
+    if (hammer_is_ascii_letter((char)code)) return HAMMER_LETTER;
+    return code == '\'' ? HAMMER_JOINER : HAMMER_OTHER;
+  }
+  uint64_t low = 0, high = sizeof hammer_word_classes / sizeof hammer_word_classes[0];
+  while (low < high) {
+    uint64_t mid = (low + high) / 2;
+    if (code < hammer_word_classes[mid][0]) {
+      high = mid;
+    } else if (code > hammer_word_classes[mid][1]) {
+      low = mid + 1;
+    } else {
+      return (int)hammer_word_classes[mid][2];
+    }
+  }
+  return HAMMER_OTHER;
+}
+
+// The word class of the character at i; HAMMER_OTHER past the end.
+static inline int hammer_word_class_at(HammerText text, uint64_t i) {
+  if (i >= text.length) return HAMMER_OTHER;
+  uint64_t length;
+  return hammer_word_class(hammer_decode(text.data + i, text.length - i, &length));
+}
+
+// Whether the character at i is a letter, an ideograph among them.
 static inline int hammer_letter_at(HammerText text, uint64_t i) {
-  unsigned char c = hammer_byte(text, i);
-  if (c < 0x80) return hammer_is_ascii_letter((char)c);
-  if (c == 0xC2) return 0;
-  if (c == 0xE2 && (hammer_byte(text, i + 1) == 0x80 || hammer_byte(text, i + 1) == 0x81)) return 0;
-  return c >= 0xC0;
+  int kind = hammer_word_class_at(text, i);
+  return kind == HAMMER_LETTER || kind == HAMMER_IDEOGRAPH;
 }
 
 // Bytes in the apostrophe at i, straight, U+2019, or Ukrainian's U+02BC, or 0.
@@ -168,27 +197,33 @@ static inline int hammer_letter_before(HammerText text, uint64_t i) {
   return i > 0 && hammer_letter_at(text, hammer_char_before(text, i));
 }
 
-// The words of a text: letters, and apostrophes between letters, so "don't" is one word. Digits and
-// hyphens end a word. The list is in hammer_must_alloc's memory.
+// The words of a text, as the Kotlin and Rust kits' words() find them: runs of letters with their
+// combining marks, and an apostrophe, the Catalan middle dot, Hebrew's geresh or gershayim, ZWNJ, ZWJ, or
+// a soft hyphen between two letters, so "don't" is one word. Digits, hyphens, and everything else end a
+// word. Chinese and Japanese put no spaces between words, so each of their characters is one. The list is
+// in hammer_must_alloc's memory.
 static inline HammerWord *hammer_words(HammerText text, uint64_t *count) {
   HammerWord *words = hammer_must_alloc((text.length / 2 + 1) * sizeof(HammerWord));
   uint64_t n = 0;
   uint64_t i = 0;
   while (i < text.length) {
-    if (!hammer_letter_at(text, i)) {
-      i += hammer_char_length(text, i);
-      continue;
-    }
     uint64_t start = i;
-    while (i < text.length) {
-      uint64_t apostrophe;
-      if (hammer_letter_at(text, i)) {
-        i += hammer_char_length(text, i);
-      } else if ((apostrophe = hammer_apostrophe_at(text, i)) && hammer_letter_at(text, i + apostrophe)) {
-        i += apostrophe;
-      } else {
-        break;
+    int kind = hammer_word_class_at(text, i);
+    i += hammer_char_length(text, i);
+    if (kind == HAMMER_IDEOGRAPH) {
+      while (hammer_word_class_at(text, i) == HAMMER_MARK) i += hammer_char_length(text, i);
+    } else if (kind == HAMMER_LETTER) {
+      for (;;) {
+        int next = hammer_word_class_at(text, i);
+        uint64_t after = i + hammer_char_length(text, i);
+        if (next != HAMMER_LETTER && next != HAMMER_MARK &&
+            !(next == HAMMER_JOINER && hammer_word_class_at(text, after) == HAMMER_LETTER)) {
+          break;
+        }
+        i = after;
       }
+    } else {
+      continue;
     }
     words[n++] = (HammerWord){start, i};
   }

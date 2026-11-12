@@ -11,7 +11,7 @@
 //
 // HAMMER_EXPECT checks a diagnose plugin's findings in one English paragraph, given the settings
 // object's JSON or 0; HAMMER_EXPECT_IN in another language's. Each finding reads "[text]>fix|fix", text being what it covers; a labelled fix
-// reads "replacement{label}". Findings are joined by "; ", and "" means none.
+// reads "replacement{label}", and a suggestion "[text]~>fix". Findings are joined by "; ", and "" means none.
 #ifndef HAMMER_TEST_H
 #define HAMMER_TEST_H
 
@@ -109,6 +109,7 @@ static char *hammer_test_render(const char *reply, const char *paragraph, int me
     hammer_json_enter_array(&json);
     while (hammer_json_next_item(&json)) {
       int64_t start = 0, end = 0;
+      int suggestion = 0;
       HammerTestString rest = {0};
       hammer_test_append(&rest, "", 0);
       hammer_json_enter_object(&json);
@@ -117,6 +118,11 @@ static char *hammer_test_render(const char *reply, const char *paragraph, int me
           start = hammer_json_int(&json);
         } else if (hammer_json_key_is(key, key_length, "end")) {
           end = hammer_json_int(&json);
+        } else if (hammer_json_key_is(key, key_length, "severity")) {
+          const char *severity;
+          uint64_t severity_length;
+          suggestion = hammer_json_string(&json, &severity, &severity_length) &&
+                       hammer_json_key_is(severity, severity_length, "suggestion");
         } else if (messages && hammer_json_key_is(key, key_length, "message")) {
           hammer_test_append_sz(&rest, " ");
           hammer_test_append_decoded(&rest, &json);
@@ -154,7 +160,7 @@ static char *hammer_test_render(const char *reply, const char *paragraph, int me
       } else {
         hammer_test_append_sz(&out, "<out of range>");
       }
-      hammer_test_append_sz(&out, "]");
+      hammer_test_append_sz(&out, suggestion ? "]~" : "]");
       hammer_test_append_sz(&out, rest.data);
       free(rest.data);
     }
