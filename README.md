@@ -32,13 +32,13 @@ approve its permissions, and restart Hammer.
 ## The kit
 
 C has no package registry, so the kit's headers live in `include/`, copied from
-[hammer-plugin-sdk](https://github.com/Darkrock-Studios/hammer-plugin-sdk) 0.6.0. It's header-only:
+[hammer-plugin-sdk](https://github.com/Darkrock-Studios/hammer-plugin-sdk) 0.8.0. It's header-only:
 `hammer.h` documents every export, and the other headers say what they do at their top. To move to a newer
-kit, replace them with a release's, such as 0.7.0's:
+kit, replace them with the headers from that release's C kit, such as 0.8.0's:
 
 ```sh
-curl -sSfL https://github.com/Darkrock-Studios/hammer-plugin-sdk/archive/refs/tags/v0.7.0.tar.gz \
-  | tar xz -C include --strip-components=3 hammer-plugin-sdk-0.7.0/c/include
+curl -sSfL https://github.com/Darkrock-Studios/hammer-plugin-sdk/releases/download/v0.8.0/hammer-plugin-sdk-c-0.8.0.tar.gz \
+  | tar xz -C include --strip-components=2 hammer-plugin-sdk-c-0.8.0/include
 ```
 
 ## Layout

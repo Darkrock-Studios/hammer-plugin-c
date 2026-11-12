@@ -9,8 +9,10 @@
 // memory, hammer_fail, resources, and what builds on them are there: no operations or cache.
 //
 // The rest of the kit: hammer_json.h reads JSON, hammer_out.h writes output, hammer_text.h finds
-// words in UTF-8 text, hammer_action.h reads an `action` export's request and writes its replies, and
-// hammer_diagnose.h does a `diagnose` export's reading and writing.
+// words in UTF-8 text, hammer_image.h finds image references in Markdown, hammer_base64.h decodes an
+// export's images and encodes bytes, hammer_archive.h writes an archive exporter's reply,
+// hammer_action.h reads an `action` export's request and writes its replies, and hammer_diagnose.h
+// does a `diagnose` export's reading and writing.
 //
 // Exports a plugin can provide. Each is also given "locale": the UI's BCP 47 tag, such as "fr-CA", or
 // null, for replying in the user's language. The manifest's and settings' words are translated by
@@ -18,12 +20,30 @@
 //   export  Renders every export format in the manifest. Input is JSON:
 //           {"format": "<id>", "projectName": "...", "language": "en", "topLevelAsChapters": true,
 //            "chapters": [{"name": "...", "scenes": ["<markdown>", ...], "prose": []}],
-//            "settings": {"<key>": <value>, ...}}
+//            "images": [], "coverImageId": null, "settings": {"<key>": <value>, ...}}
 //           A format whose manifest entry says `input = "prose"` gets each scene in `prose`
-//           instead, as the host parsed it: a list of blocks, each with a "type" of paragraph,
-//           blank, heading, list, quote, code, rule, or table. Text comes in spans:
-//           {"text": "...", "italic": true}, with bold, strikethrough, code, and link likewise
-//           left out when unset. hammer_json.h reads either form. Output is the file's bytes.
+//           instead, as the host parsed it: an array of blocks per scene, each block with a "type"
+//           of paragraph, blank, image, heading, list, quote, code, rule, or table. Text comes in
+//           spans: {"text": "...", "italic": true}, with bold, strikethrough, code, and link
+//           likewise left out when unset. hammer_json.h reads either form. Output is the file's
+//           bytes, or with `output = "archive"`, {"files": [{"path": "a.md", "text": "..."},
+//           {"path": "b.bin", "content": "<base64>"}, {"path": "images/5.png", "image": 5}]}, at
+//           least one, which Hammer zips in order: each has exactly one of text, content, or image
+//           (the id of one of "images", whose bytes Hammer writes), and a unique relative path with
+//           `/` between non-empty segments, none `.` or `..`, and no `\`. hammer_archive.h writes it.
+//           A format whose manifest entry says `images = true` gets in "images" each project image
+//           the story refers to whose file Hammer could read, sorted by id: {"id": 5, "name":
+//           "Map", "extension": "png", "mimeType": "image/png", "content": "<base64>"}, with
+//           "mimeType" application/octet-stream for an extension Hammer does not know, and
+//           "content" for hammer_base64.h to decode. Its prose has a line holding only an image as
+//           {"type": "image", "id": 5, "name": "Map"}, and its markdown as
+//           ![image](hammer://image/5), which hammer_image.h reads; either id is looked up in
+//           "images". An image inside a line, or one whose file could not be read, is its name as
+//           text, never a block. With `cover = true` as well, the cover is among them and
+//           "coverImageId" is its id, or null when there is none. Other formats get [] and null,
+//           and an image in prose as a paragraph of its name. An older Hammer leaves out "images"
+//           and "coverImageId", so hammer_json_find returns 0: treat a missing key as [] or null.
+//           Raise [limits] memory for images.
 //   action  Runs an action the manifest declares under [[actions]], from the menu of a screen in
 //           its `places` (project, scene, note, entry, event). Input is JSON:
 //           {"action": "<name>", "project": "<name>", "settings": {...}, "input": {...},
@@ -67,6 +87,9 @@
 
 // The host API version this header targets; the manifest's `api` must match.
 #define HAMMER_API_VERSION 1
+
+// The SDK release these headers are from, for a plugin that keeps a copy of them.
+#define HAMMER_KIT_VERSION "0.8.0"
 
 // What hammer_must_alloc reports; define it before including this header to say it for your plugin.
 #ifndef HAMMER_OUT_OF_MEMORY
