@@ -89,7 +89,7 @@
 #define HAMMER_API_VERSION 1
 
 // The SDK release these headers are from, for a plugin that keeps a copy of them.
-#define HAMMER_KIT_VERSION "0.8.0"
+#define HAMMER_KIT_VERSION "0.9.0"
 
 // What hammer_must_alloc reports; define it before including this header to say it for your plugin.
 #ifndef HAMMER_OUT_OF_MEMORY
