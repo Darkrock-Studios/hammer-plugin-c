@@ -62,7 +62,7 @@ static inline void hammer_suggest_fix(uint64_t start, uint64_t end, const char *
 }
 
 // Reads a request and returns the reply. Call hammer_alloc_reset() first, keeping input out of
-// hammer_alloc's memory or allocated before the reset.
+// hammer_alloc's memory or allocated after the reset.
 const char *hammer_diagnose_run(const char *input, uint64_t size, uint64_t *reply_length);
 
 // Finds a setting's value in the request, for hammer_json to read; 0 when it's not there.
